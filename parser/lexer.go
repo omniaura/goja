@@ -86,6 +86,13 @@ func (self *_parser) scanIdentifier() (string, unistring.String, bool, string) {
 	isUnicode := false
 	length := 0
 	for isIdentifierPart(self.chr) {
+		// Fast path: consume a run of ASCII identifier characters at once.
+		if end := self.asciiIdentifierRun(); end > self.chrOffset {
+			length += end - self.chrOffset
+			self.offset = end
+			self.read()
+			continue
+		}
 		r := self.chr
 		length++
 		if r == '\\' {
@@ -729,6 +736,15 @@ func (self *_parser) scanString(offset int, parse bool) (literal string, parsed 
 	length := 0
 	isUnicode := false
 	for self.chr != quote {
+		if quote == '"' || quote == '\'' {
+			// Fast path: skip a run of plain ASCII characters in one step.
+			if end := self.plainRun(byte(quote), false); end > self.chrOffset {
+				length += end - self.chrOffset
+				self.offset = end
+				self.read()
+				continue
+			}
+		}
 		chr := self.chr
 		if chr == '\n' || chr == '\r' || chr < 0 {
 			goto newline
@@ -807,6 +823,13 @@ func (self *_parser) parseTemplateCharacters() (literal string, parsed unistring
 	isUnicode := false
 	hasCR := false
 	for {
+		// Fast path: skip a run of plain ASCII characters in one step.
+		if end := self.plainRun('`', true); end > self.chrOffset {
+			length += end - self.chrOffset
+			self.offset = end
+			self.read()
+			continue
+		}
 		chr := self.chr
 		if chr < 0 {
 			goto unterminated
@@ -868,6 +891,71 @@ unterminated:
 	err = err_UnexpectedEndOfInput
 	finished = true
 	return
+}
+
+// Byte classes for the lexer's ASCII fast paths.
+const (
+	plainInDouble   = 1 << iota // ordinary inside "..."
+	plainInSingle               // ordinary inside '...'
+	plainInTemplate             // ordinary inside `...`
+	identifierASCII             // [A-Za-z0-9_$]
+)
+
+var byteClass = func() (t [256]uint8) {
+	for b := 0; b < utf8.RuneSelf; b++ {
+		c := byte(b)
+		if c != '\\' && c != '\r' {
+			if c != '\n' {
+				if c != '"' {
+					t[b] |= plainInDouble
+				}
+				if c != '\'' {
+					t[b] |= plainInSingle
+				}
+			}
+			if c != '`' && c != '$' {
+				t[b] |= plainInTemplate
+			}
+		}
+		if c == '_' || c == '$' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') {
+			t[b] |= identifierASCII
+		}
+	}
+	return
+}()
+
+// plainRun returns the end offset of the run of ASCII bytes starting at the
+// current character that need no special handling inside a string (or a
+// template, where newlines are ordinary and "$" may start a substitution).
+func (self *_parser) plainRun(quote byte, template bool) int {
+	i := self.chrOffset
+	if self.chr < 0 {
+		return i
+	}
+	var class uint8 = plainInDouble
+	switch {
+	case template:
+		class = plainInTemplate
+	case quote == '\'':
+		class = plainInSingle
+	}
+	for i < self.length && byteClass[self.str[i]]&class != 0 {
+		i++
+	}
+	return i
+}
+
+// asciiIdentifierRun returns the end of the run of ASCII identifier bytes
+// starting at the current character.
+func (self *_parser) asciiIdentifierRun() int {
+	i := self.chrOffset
+	if self.chr < 0 {
+		return i
+	}
+	for i < self.length && byteClass[self.str[i]]&identifierASCII != 0 {
+		i++
+	}
+	return i
 }
 
 func normaliseCRLF(s string) string {
@@ -958,6 +1046,9 @@ error:
 }
 
 func parseStringLiteral(literal string, length int, unicode, strict bool) (unistring.String, string) {
+	if !unicode && strings.IndexByte(literal, '\\') < 0 {
+		return unistring.String(literal), "" // ASCII without escapes: the literal is the value
+	}
 	var sb strings.Builder
 	var chars []uint16
 	if unicode {
@@ -985,10 +1076,16 @@ func parseStringLiteral(literal string, length int, unicode, strict bool) (unist
 		case chr != '\\':
 			if unicode {
 				chars = append(chars, uint16(chr))
-			} else {
-				sb.WriteByte(chr)
+				str = str[1:]
+				continue
 			}
-			str = str[1:]
+			// ASCII-only literal: copy everything up to the next escape.
+			j := strings.IndexByte(str, '\\')
+			if j < 0 {
+				j = len(str)
+			}
+			sb.WriteString(str[:j])
+			str = str[j:]
 			continue
 		}
 

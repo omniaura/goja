@@ -104,6 +104,11 @@ type _keyword struct {
 //	public
 //	static
 func IsKeyword(literal string) (Token, bool) {
+	// Every keyword is 2 to 10 lowercase ASCII letters; most identifiers are
+	// rejected here without hashing.
+	if len(literal) < 2 || len(literal) > 10 || literal[0] < 'a' || literal[0] > 'z' {
+		return 0, false
+	}
 	if keyword, exists := keywordTable[literal]; exists {
 		if keyword.futureKeyword {
 			return KEYWORD, keyword.strict

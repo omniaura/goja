@@ -916,6 +916,7 @@ func (a *typedArrayObject) deleteIdx(idx valueInt, throw bool) bool {
 }
 
 func (a *typedArrayObject) stringKeys(all bool, accum []Value) []Value {
+	a.val.runtime.checkArrayLength(int64(len(accum)) + int64(a.length))
 	if accum == nil {
 		accum = make([]Value, 0, a.length)
 	}

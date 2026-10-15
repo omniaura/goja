@@ -50,6 +50,9 @@ func (r *Runtime) _newProxyObject(target *Object, handler proxyHandler, proto *O
 	}
 	p.extensible = false
 	p.init()
+	// Lookups on a Proxy without a trap recurse into its target, as they do
+	// into a prototype.
+	r.admitChainLink(nil, target)
 	p.target = target
 	p.handler = handler
 	if call, ok := target.self.assertCallable(); ok {
@@ -858,9 +861,9 @@ func (p *proxyObject) iterateKeys() iterNextFunc {
 
 func (p *proxyObject) assertCallable() (call func(FunctionCall) Value, ok bool) {
 	if p.call != nil {
-		return func(call FunctionCall) Value {
+		return p.val.runtime.guardNative(func(call FunctionCall) Value {
 			return p.apply(call)
-		}, true
+		}), true
 	}
 	return nil, false
 }

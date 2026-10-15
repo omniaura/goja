@@ -7,6 +7,7 @@ import (
 
 func (r *Runtime) functionCtor(args []Value, proto *Object, async, generator bool) *Object {
 	var sb StringBuilder
+	r.limitStringBuilder(&sb)
 	if async {
 		if generator {
 			sb.WriteString(asciiString("(async function* anonymous("))
@@ -81,6 +82,7 @@ func (r *Runtime) createListFromArrayLike(a Value) []Value {
 		return arr.values
 	}
 	l := toLength(o.self.getStr("length", nil))
+	r.checkArrayLength(l)
 	res := make([]Value, 0, l)
 	for k := int64(0); k < l; k++ {
 		res = append(res, nilSafe(o.self.getIdx(valueInt(k), nil)))
@@ -145,6 +147,7 @@ func (r *Runtime) boundConstruct(f *Object, target func([]Value, *Object) *Objec
 		copy(args, boundArgs[1:])
 	}
 	return func(fargs []Value, newTarget *Object) *Object {
+		defer r.leaveNesting(r.enterNesting())
 		a := append(args, fargs...)
 		if newTarget == f {
 			newTarget = nil
@@ -202,6 +205,8 @@ lenNotInt:
 		wrapped:          obj,
 	}
 	bf.prototype = obj.self.proto()
+	// A Proxy's getPrototypeOf trap can return any object.
+	r.admitChainLink(nil, bf.prototype)
 	v.self = bf
 
 	return v

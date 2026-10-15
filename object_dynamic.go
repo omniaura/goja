@@ -448,6 +448,10 @@ func (o *baseDynamicObject) proto() *Object {
 }
 
 func (o *baseDynamicObject) setProto(proto *Object, throw bool) bool {
+	if !o.val.runtime.admitChainLink(o.val, proto) {
+		typeErrorResult(throw, "Cyclic __proto__ value")
+		return false
+	}
 	o.prototype = proto
 	return true
 }

@@ -692,6 +692,7 @@ func (self *_parser) parseBracketMember(left ast.Expression) ast.Expression {
 }
 
 func (self *_parser) parseNewExpression() ast.Expression {
+	defer self.unnest(self.nest())
 	idx := self.expect(token.NEW)
 	if self.token == token.PERIOD {
 		self.next()
@@ -859,6 +860,7 @@ func (self *_parser) parseUnaryExpression() ast.Expression {
 		tkn := self.token
 		idx := self.idx
 		self.next()
+		defer self.unnest(self.nest())
 		return &ast.UnaryExpression{
 			Operator: tkn,
 			Idx:      idx,
@@ -878,6 +880,7 @@ func (self *_parser) parseUnaryExpression() ast.Expression {
 			if self.scope.inFuncParams {
 				self.error(idx, "Illegal await-expression in formal parameters of async function")
 			}
+			defer self.unnest(self.nest())
 			return &ast.AwaitExpression{
 				Await:    idx,
 				Argument: self.parseUnaryExpression(),
@@ -901,11 +904,13 @@ func (self *_parser) parseExponentiationExpression() ast.Expression {
 		}
 		for {
 			self.next()
+			counted := self.nest()
 			left = &ast.BinaryExpression{
 				Operator: token.EXPONENT,
 				Left:     left,
 				Right:    self.parseExponentiationExpression(),
 			}
+			self.unnest(counted)
 			if self.token != token.EXPONENT {
 				break
 			}
@@ -1232,6 +1237,7 @@ func (self *_parser) parseSingleArgArrowFunction(start file.Idx, async bool) ast
 }
 
 func (self *_parser) parseAssignmentExpression() ast.Expression {
+	defer self.unnest(self.nest())
 	start := self.idx
 	parenthesis := false
 	async := false

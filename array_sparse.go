@@ -315,11 +315,12 @@ func (a *sparseArrayObject) hasPropertyIdx(idx valueInt) bool {
 }
 
 func (a *sparseArrayObject) expand(idx uint32) bool {
+	r := a.val.runtime
 	if l := len(a.items); l >= 1024 {
 		if ii := a.items[l-1].idx; ii > idx {
 			idx = ii
 		}
-		if (bits.UintSize == 64 || idx < math.MaxInt32) && int(idx)>>3 < l {
+		if (bits.UintSize == 64 || idx < math.MaxInt32) && int(idx)>>3 < l && (r.limits.MaxArrayElements <= 0 || int64(idx) < int64(r.limits.MaxArrayElements)) {
 			//log.Println("Switching sparse->standard")
 			ar := &arrayObject{
 				baseObject:     a.baseObject,
@@ -333,6 +334,7 @@ func (a *sparseArrayObject) expand(idx uint32) bool {
 			return false
 		}
 	}
+	r.checkArrayLength(int64(len(a.items)) + 1)
 	return true
 }
 

@@ -30,6 +30,9 @@ func (ai *arrayIterObject) next() Value {
 		ai.obj = nil
 		return ai.val.runtime.createIterResultObject(_undefined, true)
 	}
+	// A sparse array can be far longer than any array that holds its
+	// elements, and spreading or collecting it would allocate for every index.
+	ai.val.runtime.checkArrayLength(index + 1)
 	ai.nextIdx++
 	idxVal := valueInt(index)
 	if ai.kind == iterationKindKey {
@@ -348,6 +351,7 @@ func (a *arrayObject) expand(idx uint32) bool {
 	targetLen := idx + 1
 	if targetLen > uint32(len(a.values)) {
 		if targetLen < uint32(cap(a.values)) {
+			a.val.runtime.checkArrayLength(int64(targetLen))
 			a.values = a.values[:targetLen]
 		} else {
 			if idx > 4096 && (a.objCount == 0 || idx/uint32(a.objCount) > 10) {
@@ -368,6 +372,8 @@ func (a *arrayObject) expand(idx uint32) bool {
 						panic(a.val.runtime.NewTypeError("Array index overflows int"))
 					}
 				}
+				// Holes count: a dense array allocates their slots all the same.
+				a.val.runtime.checkArrayLength(int64(targetLen))
 				tl := int(targetLen)
 				newValues := make([]Value, tl, growCap(tl, len(a.values), cap(a.values)))
 				copy(newValues, a.values)

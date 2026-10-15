@@ -204,6 +204,15 @@ type compiledOptional struct {
 
 func (c *compiler) compileExpression(v ast.Expression) compiledExpr {
 	// log.Printf("compileExpression: %T", v)
+	if limit := c.limits.MaxNestingDepth; limit > 0 && v != nil {
+		// The parser limits nesting, but it reads a chain such as a+a+...+a
+		// or a.b.c...z in a loop, and its tree is just as deep.
+		if c.nestingDepth >= limit {
+			c.throwSyntaxError(int(v.Idx0())-1, "Maximum nesting depth exceeded")
+		}
+		c.nestingDepth++
+		defer func() { c.nestingDepth-- }()
+	}
 	switch v := v.(type) {
 	case nil:
 		return nil
@@ -2436,6 +2445,9 @@ func (c *compiler) evalConst(expr compiledExpr) (Value, *Exception) {
 	}
 	if c.evalVM == nil {
 		c.evalVM = New().vm
+		// Constant folding runs script operators at compile time, where
+		// Interrupt cannot reach them: 2n ** (2n ** 40n) is a constant.
+		c.evalVM.r.limits = c.limits
 	}
 	var savedPrg *Program
 	createdPrg := false

@@ -155,6 +155,7 @@ func (r *Runtime) string_raw(call FunctionCall) Value {
 		return stringEmpty
 	}
 	var stringElements StringBuilder
+	r.limitStringBuilder(&stringElements)
 	nextIndex := int64(0)
 	numberOfSubstitutions := int64(len(call.Arguments) - 1)
 	for {
@@ -251,6 +252,7 @@ func (r *Runtime) stringproto_concat(call FunctionCall) Value {
 			strs[i+1] = a
 		}
 	}
+	r.checkStringLength(int64(totalLen))
 
 	if allAscii {
 		var buf strings.Builder
@@ -487,6 +489,7 @@ func (r *Runtime) _stringPad(call FunctionCall, start bool) Value {
 	if maxLength <= stringLength {
 		return s
 	}
+	r.checkStringLength(maxLength)
 	strAscii, strUnicode := devirtualizeString(s)
 	var filler String
 	var fillerAscii asciiString
@@ -563,6 +566,9 @@ func (r *Runtime) stringproto_repeat(call FunctionCall) Value {
 	if numInt == 0 || s.Length() == 0 {
 		return stringEmpty
 	}
+	if limit := int64(r.limits.MaxStringLength); limit > 0 && numInt > limit/int64(s.Length()) {
+		panic(rangeError(errMsgStringLength))
+	}
 	num := toIntStrict(numInt)
 	a, u := devirtualizeString(s)
 	if u == nil {
@@ -601,6 +607,7 @@ func (r *Runtime) stringReplace(s String, found []regexpResult, newstring String
 	a, u := devirtualizeString(s)
 
 	var buf StringBuilder
+	r.limitStringBuilder(&buf)
 
 	lastIndex := 0
 	lengthS := s.Length()
@@ -732,6 +739,7 @@ func (r *Runtime) stringproto_replaceAll(call FunctionCall) Value {
 
 	pos := s.index(searchStr, 0)
 	for pos != -1 {
+		r.checkArrayLength(int64(len(found)) + 1)
 		found = append(found, regexpResult{indexes: []int{pos, pos + searchLength}})
 		pos = s.index(searchStr, pos+advanceBy)
 	}
@@ -848,6 +856,9 @@ func (r *Runtime) stringproto_split(call FunctionCall) Value {
 	if limit > 0 {
 		splitLimit = limit + 1
 	}
+	if max := r.matchLimit(); max > 0 && (splitLimit < 0 || splitLimit > max) {
+		splitLimit = max
+	}
 
 	// TODO handle invalid UTF-16
 	split := strings.SplitN(str, separator, splitLimit)
@@ -855,6 +866,7 @@ func (r *Runtime) stringproto_split(call FunctionCall) Value {
 	if limit > 0 && len(split) > limit {
 		split = split[:limit]
 	}
+	r.checkArrayLength(int64(len(split)))
 
 	valueArray := make([]Value, len(split))
 	for index, value := range split {

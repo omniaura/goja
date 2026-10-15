@@ -90,6 +90,9 @@ type compiler struct {
 	codeScratchpad []instruction
 
 	stringCache map[unistring.String]Value
+
+	limits       Limits
+	nestingDepth int
 }
 
 type binding struct {

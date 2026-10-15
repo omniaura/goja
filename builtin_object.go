@@ -230,6 +230,7 @@ func (r *Runtime) object_create(call FunctionCall) Value {
 			r.typeErrorResult(true, "Object prototype may only be an Object or null: %s", arg.String())
 		}
 	}
+	r.admitChainLink(nil, proto)
 	o := r.newBaseObject(proto, classObject).val
 
 	if props := call.Argument(1); props != _undefined {

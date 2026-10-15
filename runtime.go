@@ -205,6 +205,9 @@ type Runtime struct {
 	// Stack for tracking objects currently being converted to string
 	// to detect and handle circular references
 	toStringStack []*Object
+
+	limits       Limits
+	nestingDepth int
 }
 
 type StackFrame struct {
@@ -1305,14 +1308,14 @@ func New() *Runtime {
 // method. This representation is not linked to a runtime in any way and can be run in multiple runtimes (possibly
 // at the same time).
 func Compile(name, src string, strict bool) (*Program, error) {
-	return compile(name, src, strict, true, nil)
+	return compile(name, src, strict, true, nil, nil)
 }
 
 // CompileAST creates an internal representation of the JavaScript code that can be later run using the Runtime.RunProgram()
 // method. This representation is not linked to a runtime in any way and can be run in multiple runtimes (possibly
 // at the same time).
 func CompileAST(prg *js_ast.Program, strict bool) (*Program, error) {
-	return compileAST(prg, strict, true, nil)
+	return compileAST(prg, strict, true, nil, nil)
 }
 
 // MustCompile is like Compile but panics if the code cannot be compiled.
@@ -1348,17 +1351,25 @@ func Parse(name, src string, options ...parser.Option) (prg *js_ast.Program, err
 	return
 }
 
-func compile(name, src string, strict, inGlobal bool, evalVm *vm, parserOptions ...parser.Option) (p *Program, err error) {
+// compile parses and compiles src. limits, if not nil, are the Runtime's: they
+// bound how deeply the source may nest and apply to constant folding.
+func compile(name, src string, strict, inGlobal bool, evalVm *vm, limits *Limits, parserOptions ...parser.Option) (p *Program, err error) {
+	if limits != nil && limits.MaxNestingDepth > 0 {
+		parserOptions = append(parserOptions[:len(parserOptions):len(parserOptions)], parser.WithMaxNestingDepth(limits.MaxNestingDepth))
+	}
 	prg, err := Parse(name, src, parserOptions...)
 	if err != nil {
 		return
 	}
 
-	return compileAST(prg, strict, inGlobal, evalVm)
+	return compileAST(prg, strict, inGlobal, evalVm, limits)
 }
 
-func compileAST(prg *js_ast.Program, strict, inGlobal bool, evalVm *vm) (p *Program, err error) {
+func compileAST(prg *js_ast.Program, strict, inGlobal bool, evalVm *vm, limits *Limits) (p *Program, err error) {
 	c := newCompiler()
+	if limits != nil {
+		c.limits = *limits
+	}
 
 	defer func() {
 		if x := recover(); x != nil {
@@ -1378,7 +1389,7 @@ func compileAST(prg *js_ast.Program, strict, inGlobal bool, evalVm *vm) (p *Prog
 }
 
 func (r *Runtime) compile(name, src string, strict, inGlobal bool, evalVm *vm) (p *Program, err error) {
-	p, err = compile(name, src, strict, inGlobal, evalVm, r.parserOptions...)
+	p, err = compile(name, src, strict, inGlobal, evalVm, &r.limits, r.parserOptions...)
 	if err != nil {
 		switch x1 := err.(type) {
 		case *CompilerSyntaxError:
@@ -3226,6 +3237,7 @@ func (r *Runtime) getPrototypeFromCtor(newTarget, defCtor, defProto *Object) *Ob
 	}
 	proto := newTarget.self.getStr("prototype", nil)
 	if obj, ok := proto.(*Object); ok {
+		r.admitChainLink(nil, obj)
 		return obj
 	}
 	return defProto

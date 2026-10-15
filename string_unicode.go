@@ -42,6 +42,10 @@ type lenientUtf16Decoder struct {
 type StringBuilder struct {
 	asciiBuilder   strings.Builder
 	unicodeBuilder unicodeStringBuilder
+
+	// limit, when positive, is the longest string (in UTF-16 code units) the
+	// builder may hold; see Limits.MaxStringLength.
+	limit int
 }
 
 type unicodeStringBuilder struct {
@@ -210,7 +214,25 @@ func (b *StringBuilder) ascii() bool {
 	return len(b.unicodeBuilder.buf) == 0
 }
 
+func (b *StringBuilder) length() int {
+	if b.ascii() {
+		return b.asciiBuilder.Len()
+	}
+	return len(b.unicodeBuilder.buf) - 1
+}
+
+// reserve throws a RangeError if writing n more UTF-16 code units would take
+// the builder past its limit.
+func (b *StringBuilder) reserve(n int) {
+	if int64(b.length())+int64(n) > int64(b.limit) {
+		panic(rangeError(errMsgStringLength))
+	}
+}
+
 func (b *StringBuilder) WriteString(s String) {
+	if b.limit > 0 {
+		b.reserve(s.Length())
+	}
 	a, u := devirtualizeString(s)
 	if u != nil {
 		b.switchToUnicode(u.Length())
@@ -225,6 +247,10 @@ func (b *StringBuilder) WriteString(s String) {
 }
 
 func (b *StringBuilder) WriteUTF8String(s string) {
+	if b.limit > 0 {
+		// A UTF-8 string has at least as many bytes as UTF-16 code units.
+		b.reserve(len(s))
+	}
 	firstUnicodeIdx := 0
 	if b.ascii() {
 		for i := 0; i < len(s); i++ {
@@ -245,6 +271,9 @@ unicode:
 }
 
 func (b *StringBuilder) writeASCII(s string) {
+	if b.limit > 0 {
+		b.reserve(len(s))
+	}
 	if b.ascii() {
 		b.asciiBuilder.WriteString(s)
 	} else {
@@ -253,6 +282,13 @@ func (b *StringBuilder) writeASCII(s string) {
 }
 
 func (b *StringBuilder) WriteRune(r rune) {
+	if b.limit > 0 {
+		if r > 0xFFFF {
+			b.reserve(2)
+		} else {
+			b.reserve(1)
+		}
+	}
 	if r < utf8.RuneSelf {
 		if b.ascii() {
 			b.asciiBuilder.WriteByte(byte(r))
@@ -309,6 +345,9 @@ func (b *StringBuilder) switchToUnicode(extraLen int) {
 }
 
 func (b *StringBuilder) WriteSubstring(source String, start int, end int) {
+	if b.limit > 0 {
+		b.reserve(end - start)
+	}
 	a, us := devirtualizeString(source)
 	if us == nil {
 		if b.ascii() {

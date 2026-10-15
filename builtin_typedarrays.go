@@ -90,7 +90,7 @@ func (r *Runtime) builtin_newArrayBuffer(args []Value, newTarget *Object) *Objec
 	}
 	b := r._newArrayBuffer(r.getPrototypeFromCtor(newTarget, r.getArrayBuffer(), r.getArrayBufferPrototype()), nil)
 	if len(args) > 0 {
-		b.data = allocByteSlice(r.toIndex(args[0]))
+		b.data = r.allocByteSlice(r.toIndex(args[0]))
 	}
 	return b.val
 }
@@ -809,6 +809,7 @@ func (r *Runtime) typedArrayProto_join(call FunctionCall) Value {
 		}
 
 		var buf StringBuilder
+		r.limitStringBuilder(&buf)
 
 		var element0 Value
 		if ta.isValidIntegerIndex(0) {
@@ -1174,6 +1175,7 @@ func (r *Runtime) typedArrayProto_toLocaleString(call FunctionCall) Value {
 	if ta, ok := r.toObject(call.This).self.(*typedArrayObject); ok {
 		length := ta.length
 		var buf StringBuilder
+		r.limitStringBuilder(&buf)
 		for i := 0; i < length; i++ {
 			ta.viewedArrayBuf.ensureNotDetached(true)
 			if i > 0 {
@@ -1365,7 +1367,7 @@ func (r *Runtime) allocateTypedArray(newTarget *Object, length int, taCtor typed
 	buf := r._newArrayBuffer(r.getArrayBufferPrototype(), nil)
 	ta := taCtor(buf, 0, length, r.getPrototypeFromCtor(newTarget, nil, proto))
 	if length > 0 {
-		buf.data = allocByteSlice(length * ta.elemSize)
+		buf.data = r.allocByteSlice(length * ta.elemSize)
 	}
 	return ta
 }
@@ -1484,7 +1486,7 @@ func (r *Runtime) _newTypedArrayFromTypedArray(src *typedArrayObject, newTarget 
 	src.viewedArrayBuf.ensureNotDetached(true)
 	l := src.length
 
-	dst.viewedArrayBuf.data = allocByteSlice(toIntStrict(int64(l) * int64(dst.elemSize)))
+	dst.viewedArrayBuf.data = r.allocByteSlice(toIntStrict(int64(l) * int64(dst.elemSize)))
 	src.viewedArrayBuf.ensureNotDetached(true)
 	if src.defaultCtor == dst.defaultCtor {
 		copy(dst.viewedArrayBuf.data, src.viewedArrayBuf.data[src.offset*src.elemSize:])

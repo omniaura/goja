@@ -52,8 +52,10 @@ func (r *Runtime) builtinJSON_decodeToken(d *json.Decoder, tok json.Token) (Valu
 	case json.Delim:
 		switch tok {
 		case '{':
+			defer r.leaveNesting(r.enterNesting())
 			return r.builtinJSON_decodeObject(d)
 		case '[':
+			defer r.leaveNesting(r.enterNesting())
 			return r.builtinJSON_decodeArray(d)
 		}
 	case nil:
@@ -132,12 +134,14 @@ func (r *Runtime) builtinJSON_decodeArray(d *json.Decoder) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
+		r.checkArrayLength(int64(len(arrayValue)) + 1)
 		arrayValue = append(arrayValue, value)
 	}
 	return r.newArrayValues(arrayValue), nil
 }
 
 func (r *Runtime) builtinJSON_reviveWalk(reviver func(FunctionCall) Value, holder *Object, name Value) Value {
+	defer r.leaveNesting(r.enterNesting())
 	value := nilSafe(holder.get(name, nil))
 
 	if object, ok := value.(*Object); ok {
@@ -189,6 +193,7 @@ func (r *Runtime) builtinJSON_stringify(call FunctionCall) Value {
 	if replacer != nil {
 		if isArray(replacer) {
 			length := toLength(replacer.self.getStr("length", nil))
+			r.checkArrayLength(length)
 			seen := map[string]bool{}
 			propertyList := make([]Value, length)
 			length = 0
@@ -261,6 +266,7 @@ func (r *Runtime) builtinJSON_stringify(call FunctionCall) Value {
 	}
 
 	if ctx.do(call.Argument(0)) {
+		ctx.checkLength()
 		if ctx.allAscii {
 			return asciiString(ctx.buf.String())
 		} else {
@@ -278,7 +284,17 @@ func (ctx *_builtinJSON_stringifyContext) do(v Value) bool {
 	return ctx.str(stringEmpty, holder)
 }
 
+// checkLength enforces MaxStringLength on the output so far. It counts UTF-8
+// bytes, which are never fewer than the UTF-16 code units of the result.
+func (ctx *_builtinJSON_stringifyContext) checkLength() {
+	ctx.r.checkStringLength(int64(ctx.buf.Len()))
+}
+
 func (ctx *_builtinJSON_stringifyContext) str(key Value, holder *Object) bool {
+	// Each value is written after the previous one is checked, so the output
+	// can overshoot by one value at most, and a sparse array's holes are
+	// written one at a time.
+	ctx.checkLength()
 	value := nilSafe(holder.get(key, nil))
 
 	switch value.(type) {
@@ -364,6 +380,7 @@ func (ctx *_builtinJSON_stringifyContext) str(key Value, holder *Object) bool {
 	case *valueBigInt:
 		ctx.r.typeErrorResult(true, "Do not know how to serialize a BigInt")
 	case *Object:
+		defer ctx.r.leaveNesting(ctx.r.enterNesting())
 		for _, object := range ctx.stack {
 			if value1.SameAs(object) {
 				ctx.r.typeErrorResult(true, "Converting circular structure to JSON")

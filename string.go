@@ -276,6 +276,7 @@ func (s *stringObject) iterateStringKeys() iterNextFunc {
 }
 
 func (s *stringObject) stringKeys(all bool, accum []Value) []Value {
+	s.val.runtime.checkArrayLength(int64(len(accum)) + int64(s.length))
 	for i := 0; i < s.length; i++ {
 		accum = append(accum, asciiString(strconv.Itoa(i)))
 	}

@@ -264,6 +264,7 @@ func (f *baseJsFuncObject) construct(args []Value, newTarget *Object) *Object {
 	proto := newTarget.self.getStr("prototype", nil)
 	var protoObj *Object
 	if p, ok := proto.(*Object); ok {
+		f.val.runtime.admitChainLink(nil, p)
 		protoObj = p
 	} else {
 		protoObj = f.val.runtime.global.ObjectPrototype
@@ -558,7 +559,7 @@ func (f *nativeFuncObject) defaultConstruct(ccall func(ConstructorCall) *Object,
 
 func (f *nativeFuncObject) assertCallable() (func(FunctionCall) Value, bool) {
 	if f.f != nil {
-		return f.f, true
+		return f.val.runtime.guardNative(f.f), true
 	}
 	return nil, false
 }
@@ -589,6 +590,7 @@ func (f *nativeFuncObject) assertConstructor() func(args []Value, newTarget *Obj
 }
 
 func (f *boundFuncObject) hasInstance(v Value) bool {
+	defer f.val.runtime.leaveNesting(f.val.runtime.enterNesting())
 	return instanceOfOperator(v, f.wrapped)
 }
 

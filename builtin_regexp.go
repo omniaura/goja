@@ -710,6 +710,7 @@ func (r *Runtime) getGlobalRegexpMatches(rxObj *Object, s String, fullUnicode bo
 		if res == _null {
 			break
 		}
+		r.checkArrayLength(int64(len(a)) + 1)
 		a = append(a, res)
 		matchStr := nilSafe(r.toObject(res).self.getIdx(valueInt(0), nil)).toString()
 		if matchStr.Length() == 0 {
@@ -773,7 +774,8 @@ func (r *Runtime) regexpproto_stdMatcher(call FunctionCall) Value {
 	}
 	if rx.pattern.global {
 		rx.setOwnStr("lastIndex", intToValue(0), true)
-		results := rx.pattern.findAllSubmatchIndex(s, 0, -1, rx.pattern.sticky)
+		results := rx.pattern.findAllSubmatchIndex(s, 0, r.matchLimit(), rx.pattern.sticky)
+		r.checkArrayLength(int64(len(results)))
 		if len(results) == 0 {
 			return _null
 		}
@@ -1039,7 +1041,8 @@ func (r *Runtime) regexpproto_stdSplitter(call FunctionCall) Value {
 	lastIndex := 0
 	found := 0
 
-	results := pattern.findAllSubmatchIndex(s, 0, -1, false)
+	results := pattern.findAllSubmatchIndex(s, 0, r.matchLimit(), false)
+	r.checkArrayLength(int64(len(results)))
 	if targetLength == 0 {
 		if len(results) == 0 {
 			valueArray = append(valueArray, s)
@@ -1116,6 +1119,7 @@ func (r *Runtime) regexpproto_stdReplacerGeneric(rxObj *Object, s, replaceStr St
 	lengthS := s.Length()
 	nextSourcePosition := 0
 	var resultBuf StringBuilder
+	r.limitStringBuilder(&resultBuf)
 	for _, result := range results {
 		obj := r.toObject(result)
 		nCaptures := max(toLength(obj.self.getStr("length", nil))-1, 0)
@@ -1271,11 +1275,12 @@ func (r *Runtime) regexpproto_stdReplacer(call FunctionCall) Value {
 	var index int64
 	find := 1
 	if rx.pattern.global {
-		find = -1
+		find = r.matchLimit()
 	} else {
 		index = rx.getLastIndex()
 	}
 	found := rx.pattern.findAllSubmatchIndex(s, toIntStrict(index), find, rx.pattern.sticky)
+	r.checkArrayLength(int64(len(found)))
 	if rx.pattern.global || rx.pattern.sticky {
 		var newLastIndex int64
 		if !rx.pattern.global && len(found) > 0 {

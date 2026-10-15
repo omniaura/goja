@@ -1279,6 +1279,9 @@ func (_add) exec(vm *vm) {
 		if !isRightString {
 			rightString = right.toString()
 		}
+		if vm.r.limits.MaxStringLength > 0 {
+			vm.r.checkStringLength(int64(leftString.Length()) + int64(rightString.Length()))
+		}
 		ret = leftString.Concat(rightString)
 	} else {
 		switch left := left.(type) {
@@ -1384,6 +1387,7 @@ func (_mul) exec(vm *vm) {
 		}
 	case *valueBigInt:
 		if right, ok := right.(*valueBigInt); ok {
+			vm.r.checkBigIntMul((*big.Int)(left), (*big.Int)(right))
 			result = (*valueBigInt)(new(big.Int).Mul((*big.Int)(left), (*big.Int)(right)))
 			goto end
 		}
@@ -1416,6 +1420,7 @@ func (_exp) exec(vm *vm) {
 			if (*big.Int)(y).Cmp(big.NewInt(0)) < 0 {
 				panic(vm.r.newError(vm.r.getRangeError(), "exponent must be positive"))
 			}
+			vm.r.checkBigIntExp((*big.Int)(x), (*big.Int)(y))
 			result = (*valueBigInt)(new(big.Int).Exp((*big.Int)(x), (*big.Int)(y), nil))
 			goto end
 		}
@@ -1755,6 +1760,7 @@ func (_sal) exec(vm *vm) {
 			if (*big.Int)(right).Sign() < 0 {
 				result = (*valueBigInt)(new(big.Int).Rsh((*big.Int)(left), n))
 			} else {
+				vm.r.checkBigIntShift((*big.Int)(left), (*big.Int)(right))
 				result = (*valueBigInt)(new(big.Int).Lsh((*big.Int)(left), n))
 			}
 			goto end
@@ -1784,6 +1790,7 @@ func (_sar) exec(vm *vm) {
 		if right, ok := right.(*valueBigInt); ok {
 			n := uint((*big.Int)(right).Uint64())
 			if (*big.Int)(right).Sign() < 0 {
+				vm.r.checkBigIntShift((*big.Int)(left), (*big.Int)(right))
 				result = (*valueBigInt)(new(big.Int).Lsh((*big.Int)(left), n))
 			} else {
 				result = (*valueBigInt)(new(big.Int).Rsh((*big.Int)(left), n))
@@ -2767,6 +2774,7 @@ var pushArraySpread _pushArraySpread
 func (_pushArraySpread) exec(vm *vm) {
 	arr := vm.stack[vm.sp-2].(*Object).self.(*arrayObject)
 	vm.r.getIterator(vm.stack[vm.sp-1], nil).iterate(func(val Value) {
+		vm.r.checkArrayLength(int64(len(arr.values)) + 1)
 		if arr.length < math.MaxUint32 {
 			arr.length++
 		} else {
@@ -2787,7 +2795,9 @@ var pushSpread _pushSpread
 func (_pushSpread) exec(vm *vm) {
 	vm.sp--
 	obj := vm.stack[vm.sp]
+	start := vm.sp
 	vm.r.getIterator(obj, nil).iterate(func(val Value) {
+		vm.r.checkArrayLength(int64(vm.sp-start) + 1)
 		vm.push(val)
 	})
 	vm.pc++
@@ -5284,6 +5294,7 @@ func (n concatStrings) exec(vm *vm) {
 			panic(unknownStringTypeErr(s))
 		}
 	}
+	vm.r.checkStringLength(int64(length))
 
 	vm.sp -= int(n) - 1
 	if allAscii {
@@ -5415,6 +5426,8 @@ func (vm *vm) fillPrivateNamesMap(typ *privateEnvType, privateFields, privateMet
 }
 
 func (c *newClass) create(protoParent, ctorParent *Object, vm *vm, derived bool) (prototype, cls *Object) {
+	vm.r.admitChainLink(nil, protoParent)
+	vm.r.admitChainLink(nil, ctorParent)
 	proto := vm.r.newBaseObject(protoParent, classObject)
 	f := vm.r.newClassFunc(c.name, c.length, ctorParent, derived)
 	f._putProp("prototype", proto.val, false, false, false)

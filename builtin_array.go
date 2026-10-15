@@ -208,6 +208,7 @@ func (r *Runtime) arrayproto_join(call FunctionCall) Value {
 	}
 
 	var buf StringBuilder
+	r.limitStringBuilder(&buf)
 
 	element0 := o.self.getIdx(valueInt(0), nil)
 	if element0 != nil && element0 != _undefined && element0 != _null {
@@ -275,6 +276,7 @@ func (r *Runtime) arrayproto_toLocaleString(call FunctionCall) Value {
 	defer r.popFromStringStack()
 
 	var buf StringBuilder
+	r.limitStringBuilder(&buf)
 	if a := r.checkStdArrayObj(array); a != nil {
 		for i, item := range a.values {
 			if i > 0 {
@@ -404,10 +406,11 @@ func (r *Runtime) arrayproto_sort(call FunctionCall) Value {
 		sort.Stable(&ctx)
 	} else {
 		length := toLength(o.self.getStr("length", nil))
-		a := make([]Value, 0, length)
+		a := make([]Value, 0, r.arrayPrealloc(length))
 		for i := int64(0); i < length; i++ {
 			idx := valueInt(i)
 			if o.self.hasPropertyIdx(idx) {
+				r.checkArrayLength(int64(len(a)) + 1)
 				a = append(a, nilSafe(o.self.getIdx(idx, nil)))
 			}
 		}
@@ -471,6 +474,7 @@ func (r *Runtime) arrayproto_splice(call FunctionCall) Value {
 				values = src.values[:newLength]
 				copy(values[actualStart+itemCount:], values[actualStart+actualDeleteCount:length])
 			} else {
+				r.checkArrayLength(newLength)
 				values = make([]Value, newLength)
 				copy(values, src.values[:actualStart])
 				copy(values[actualStart+itemCount:], src.values[actualStart+actualDeleteCount:])
@@ -544,6 +548,7 @@ func (r *Runtime) arrayproto_unshift(call FunctionCall) Value {
 				arr.values = arr.values[:newSize]
 				copy(arr.values[argCount:], arr.values[:length])
 			} else {
+				r.checkArrayLength(newSize)
 				values := make([]Value, newSize)
 				copy(values[argCount:], arr.values)
 				arr.values = values
@@ -788,6 +793,7 @@ func (r *Runtime) arrayproto_map(call FunctionCall) Value {
 	a := arraySpeciesCreate(o, length)
 	if _, stdSrc := o.self.(*arrayObject); stdSrc {
 		if arr, ok := a.self.(*arrayObject); ok {
+			r.checkArrayLength(length)
 			values := make([]Value, length)
 			for k := int64(0); k < length; k++ {
 				idx := valueInt(k)
@@ -1203,6 +1209,7 @@ func (r *Runtime) arrayproto_flat(call FunctionCall) Value {
 }
 
 func (r *Runtime) flattenIntoArray(target, source *Object, sourceLen, start, depth int64, mapperFunction func(FunctionCall) Value, thisArg Value) int64 {
+	defer r.leaveNesting(r.enterNesting())
 	targetIndex, sourceIndex := start, int64(0)
 	for sourceIndex < sourceLen {
 		p := intToValue(sourceIndex)
@@ -1337,6 +1344,7 @@ func (r *Runtime) arrayproto_toSorted(call FunctionCall) Value {
 	}
 	var a []Value
 
+	r.checkArrayLength(length)
 	if src := r.checkStdArrayObj(o); src != nil {
 		a = make([]Value, length)
 		copy(a, src.values)
@@ -1380,6 +1388,7 @@ func (r *Runtime) arrayproto_toSpliced(call FunctionCall) Value {
 			values = make([]Value, len(src.values))
 			copy(values, src.values)
 		} else {
+			r.checkArrayLength(newLength)
 			values = make([]Value, newLength)
 			copy(values, src.values[:actualStart])
 			copy(values[actualStart+itemCount:], src.values[actualStart+actualSkipCount:])
@@ -1506,6 +1515,7 @@ func (r *Runtime) array_from(call FunctionCall) Value {
 			if a := r.checkStdArrayObjWithProto(arr); a != nil {
 				var values []Value
 				iter.iterate(func(val Value) {
+					r.checkArrayLength(int64(len(values)) + 1)
 					values = append(values, val)
 				})
 				setArrayValues(a, values)
@@ -1531,6 +1541,7 @@ func (r *Runtime) array_from(call FunctionCall) Value {
 		}
 		if mapFn == nil {
 			if a := r.checkStdArrayObjWithProto(arr); a != nil {
+				r.checkArrayLength(l)
 				values := make([]Value, l)
 				for k := int64(0); k < l; k++ {
 					values[k] = nilSafe(arrayLike.self.getIdx(valueInt(k), nil))

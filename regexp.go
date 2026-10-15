@@ -350,7 +350,7 @@ func (r *regexp2Wrapper) findAllSubmatchIndexUTF16(s String, start, limit int, s
 	if match == nil || err != nil {
 		return nil
 	}
-	if limit < 0 {
+	if limit < 0 || limit > len(runes)+1 {
 		limit = len(runes) + 1
 	}
 	results := make([]regexpResult, 0, limit)
@@ -432,7 +432,7 @@ func posMapReverseLookup(posMap []int, pos int) (int, bool) {
 
 func (r *regexp2Wrapper) findAllSubmatchIndexUnicode(s unicodeString, start, limit int, sticky bool) []regexpResult {
 	wrapped := r.rx
-	if limit < 0 {
+	if limit < 0 || limit > len(s)+1 {
 		limit = len(s) + 1
 	}
 	results := make([]regexpResult, 0, limit)
@@ -466,6 +466,10 @@ func (r *regexp2Wrapper) findAllSubmatchIndexUnicode(s unicodeString, start, lim
 		}
 
 		results = append(results, result)
+		limit--
+		if limit <= 0 {
+			break
+		}
 		match, err = wrapped.FindNextMatch(match)
 		if err != nil {
 			return nil

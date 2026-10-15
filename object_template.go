@@ -331,7 +331,7 @@ func (f *templatedFuncObject) export(*objectExportCtx) interface{} {
 
 func (f *templatedFuncObject) assertCallable() (func(FunctionCall) Value, bool) {
 	if f.f != nil {
-		return f.f, true
+		return f.val.runtime.guardNative(f.f), true
 	}
 	return nil, false
 }

@@ -51,6 +51,11 @@ type Object struct {
 	self    objectImpl
 
 	weakRefs map[weakMap]Value
+
+	// chainHeight is the longest prototype or Proxy target chain known to
+	// lead to this object. It is maintained only while Limits.MaxNestingDepth
+	// is set; see Runtime.admitChainLink.
+	chainHeight uint32
 }
 
 type iterNextFunc func() (propIterItem, iterNextFunc)
@@ -468,6 +473,10 @@ func (o *baseObject) setProto(proto *Object, throw bool) bool {
 		if _, ok := p.self.(*proxyObject); ok {
 			break
 		}
+	}
+	if !o.val.runtime.admitChainLink(o.val, proto) {
+		o.val.runtime.typeErrorResult(throw, "Cyclic __proto__ value")
+		return false
 	}
 	o.prototype = proto
 	return true

@@ -54,10 +54,11 @@ const (
 type options struct {
 	disableSourceMaps bool
 	sourceMapLoader   func(path string) ([]byte, error)
+	maxNestingDepth   int
 }
 
 // Option represents one of the options for the parser to use in the Parse methods. Currently supported are:
-// WithDisableSourceMaps and WithSourceMapLoader.
+// WithDisableSourceMaps, WithSourceMapLoader and WithMaxNestingDepth.
 type Option func(*options)
 
 // WithDisableSourceMaps is an option to disable source maps support. May save a bit of time when source maps
@@ -74,6 +75,16 @@ func WithDisableSourceMaps(opts *options) {
 func WithSourceMapLoader(loader func(path string) ([]byte, error)) Option {
 	return func(opts *options) {
 		opts.sourceMapLoader = loader
+	}
+}
+
+// WithMaxNestingDepth is an option to limit how deeply the parsed source may nest expressions and statements.
+// The parser recurses once per level of nesting, so without a limit deeply nested source (megabytes of '[', for
+// example) can overflow the Go stack, which is fatal to the process. A source that exceeds the limit fails to
+// parse with an error. A value of 0 or less means no limit, which is the default.
+func WithMaxNestingDepth(depth int) Option {
+	return func(opts *options) {
+		opts.maxNestingDepth = depth
 	}
 }
 
@@ -107,6 +118,34 @@ type _parser struct {
 	opts options
 
 	file *file.File
+
+	nestingDepth int
+}
+
+// nestingDepthExceeded unwinds the parser once WithMaxNestingDepth is exceeded.
+type nestingDepthExceeded struct{}
+
+// nest counts one level of recursive descent against WithMaxNestingDepth and
+// reports whether it was counted. Pair it with unnest:
+//
+//	defer self.unnest(self.nest())
+func (self *_parser) nest() bool {
+	limit := self.opts.maxNestingDepth
+	if limit <= 0 {
+		return false
+	}
+	if self.nestingDepth >= limit {
+		self.error(self.idx, "Maximum nesting depth exceeded")
+		panic(nestingDepthExceeded{})
+	}
+	self.nestingDepth++
+	return true
+}
+
+func (self *_parser) unnest(counted bool) {
+	if counted {
+		self.nestingDepth--
+	}
 }
 
 func _newParser(filename, src string, base int, opts ...Option) *_parser {
@@ -208,9 +247,17 @@ func (self *_parser) slice(idx0, idx1 file.Idx) string {
 	return ""
 }
 
-func (self *_parser) parse() (*ast.Program, error) {
+func (self *_parser) parse() (prg *ast.Program, err error) {
 	self.openScope()
 	defer self.closeScope()
+	defer func() {
+		if x := recover(); x != nil {
+			if _, ok := x.(nestingDepthExceeded); !ok {
+				panic(x)
+			}
+			prg, err = nil, self.errors.Err()
+		}
+	}()
 	self.next()
 	program := self.parseProgram()
 	if false {
